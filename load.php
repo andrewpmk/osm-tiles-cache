@@ -2,7 +2,7 @@
 // OpenStreetMap tile cache to save bandwidth of tile servers in order to save money on tile hosting costs
 // by Andrew MacKinnon
 // Adapted from https://github.com/stlemme/osm-tiles-cache by Stefan Lemme
-// Last updated May 20, 2018
+// Last updated May 21, 2018
 //
 // The MIT License (MIT)
 //
@@ -28,6 +28,7 @@
 // SOFTWARE.
 
 $max_cache_time = 60*60*24*7; // maximum time to cache a tile before redownloading it in seconds (default 1 week)
+$min_disk_space = 1073741824; // stop caching tiles when there is less than this amount of disk space (default 1 GiB)
 
 // The following parameters must be set order for the tile cache to work: x, y, z, provider
 // See https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames for how the naming convention of OSM tiles works
@@ -73,10 +74,12 @@ $file = $path . $y . ".png";
 
 // If file already exists locally and not older than $max_cache_time
 // Then output the file from disk
+// HTTP cache control is set to 1 day so it will redownload from this server after 1 day
 // Otherwise download it
 if (file_exists($file) && time()-filemtime($file) < $max_cache_time) {
 	header("HTTP/1.1 200 Found");
 	header("Content-type: image/png");
+	header("Cache-Control: public, max-age=86400");
 	echo file_get_contents($file);
 } else {
 	$png = file_get_contents($url);
@@ -86,15 +89,20 @@ if (file_exists($file) && time()-filemtime($file) < $max_cache_time) {
 	} else {
 		header("HTTP/1.1 200 Found");
 		header("Content-type: image/png");
+		header("Cache-Control: public, max-age=86400");
 		echo $png;
-		// Create directory for cache if it does not exist already
-		if (!is_dir($path)) {
-			if (!mkdir($path, 0755, true)) {
-				header("HTTP/1.1 500 Internal Server Error");
-				die("Could not create path: " . $path);
+		// If there is less than 1 GiB of free disk space do not write any files to disk
+		// To prevent the entire hard drive from being filled up with cached tiles
+		if (disk_free_space($cache_dir) >= $min_disk_space + strlen($png)) {
+			// Create directory for cache if it does not exist already
+			if (!is_dir($path)) {
+				if (!mkdir($path, 0755, true)) {
+					header("HTTP/1.1 500 Internal Server Error");
+					die("Could not create path: " . $path);
+				}
 			}
+			file_put_contents($file,$png);
 		}
-		file_put_contents($file,$png);
 	}
 }
 ?>
